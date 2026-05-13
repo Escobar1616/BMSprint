@@ -2,7 +2,7 @@
 
 BMS練習用ウェブサイト。
 
-[** Play BMSprint **](https://escobar1616.github.io/BMSprint)
+[Play BMSprint](https://escobar1616.github.io/BMSprint)
 
 ![BMSprint Screenshot](./assets/screenshot.png)
 
