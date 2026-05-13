@@ -1,0 +1,491 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta property="og:title" content="BMSprint" />
+    <meta
+      property="og:description"
+      content="A web-based BMS-style rhythm practice tool, forked from SprinTaiko."
+    />
+    <meta property="og:type" content="website" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/png" sizes="32x32" href="./favicon.png" />
+    <link
+      rel="apple-touch-icon"
+      sizes="180x180"
+      href="./apple-touch-icon.png"
+    />
+    <title>BMSprint</title>
+    <link rel="stylesheet" href="style.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Kosugi+Maru&family=WDXL+Lubrifont+JP+N&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div id="base-window">
+      <!-- 中央セパレータ (左右1pxの黒線) -->
+      <div id="left-separate"></div>
+      <div id="right-separate"></div>
+
+      <!-- ロゴ -->
+      <div id="logo">
+        <span class="logo-bms">BMS</span><span class="logo-print">print</span>
+      </div>
+
+      <!-- SP 左サイドベース -->
+      <div id="sp-left-base" class="sp-base" data-side="left">
+        <!-- レーン (3層ボーダー) -->
+        <div class="lane-base-1">
+          <div class="lane-base-2">
+            <div class="lane-base-3" data-side="left">
+              <div class="notebases" data-side="left"></div>
+              <div class="notes-wrapper">
+                <div class="notes-display" data-side="left"></div>
+              </div>
+              <div class="judgment-line"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- タイマーゲージ -->
+        <div class="timer-gage-1">
+          <div class="timer-gage-2">
+            <div class="timer-current" data-side="left"></div>
+          </div>
+        </div>
+
+        <!-- キーインジケータ群 (JS で生成) -->
+        <div class="keys-container" data-side="left"></div>
+      </div>
+
+      <!-- SP 右サイドベース (ミラー) -->
+      <div id="sp-right-base" class="sp-base" data-side="right">
+        <div class="lane-base-1">
+          <div class="lane-base-2">
+            <div class="lane-base-3" data-side="right">
+              <div class="notebases" data-side="right"></div>
+              <div class="notes-wrapper">
+                <div class="notes-display" data-side="right"></div>
+              </div>
+              <div class="judgment-line"></div>
+            </div>
+          </div>
+        </div>
+        <div class="timer-gage-1">
+          <div class="timer-gage-2">
+            <div class="timer-current" data-side="right"></div>
+          </div>
+        </div>
+        <div class="keys-container" data-side="right"></div>
+      </div>
+
+      <!-- 中央UI (logo の下に各種コントロール) -->
+      <div id="center-ui">
+        <div class="center-stats">
+          <div class="stat-box">
+            <span class="stat-label">Time</span>
+            <span id="timer" class="stat-value">0.00</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-label">Miss</span>
+            <span id="miss" class="stat-value">0</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-label">Remaining</span>
+            <span id="remaining-notes" class="stat-value">100</span>
+          </div>
+        </div>
+
+        <div class="center-controls">
+          <div class="ctrl-box">
+            <span class="ctrl-label">Hi-Speed</span>
+            <div class="speed-control">
+              <button id="speed-down-btn">-</button>
+              <span id="speed-display" class="ctrl-value">1.0</span>
+              <button id="speed-up-btn">+</button>
+            </div>
+          </div>
+          <div class="ctrl-box">
+            <span class="ctrl-label">Notes</span>
+            <input
+              type="number"
+              id="notes-count-input"
+              class="setting-input"
+              min="10"
+              step="10"
+            />
+          </div>
+          <div class="ctrl-box">
+            <span class="ctrl-label">Bar Line</span>
+            <input
+              type="number"
+              id="bar-line-input"
+              class="setting-input"
+              min="0"
+              step="1"
+            />
+          </div>
+        </div>
+
+        <div class="center-controls">
+          <div class="ctrl-box toggle-box">
+            <span class="ctrl-label">Scratch</span>
+            <label class="toggle-switch">
+              <input type="checkbox" id="scratch-toggle" />
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="ctrl-box toggle-box">
+            <span class="ctrl-label">5Key</span>
+            <label class="toggle-switch">
+              <input type="checkbox" id="five-key-toggle" />
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="ctrl-box toggle-box">
+            <span class="ctrl-label">Mode</span>
+            <div class="mode-selector">
+              <button class="mode-btn active" data-mode="SP">SP</button>
+              <button class="mode-btn disabled" data-mode="DP" disabled>
+                DP
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="center-start">
+          <button id="start-button">Start</button>
+        </div>
+
+        <div id="progress-container">
+          <div id="progress-bar"></div>
+        </div>
+
+        <div id="countdown" class="hidden"></div>
+
+        <div id="bottom-wrapper" class="hidden">
+          <div id="result-display">
+            <h2>Result</h2>
+            <p class="final-score-p">
+              <span
+                class="score-label-tooltip"
+                title="Score = (hit/s) × Accuracy^3 × 10000"
+                >Score:</span
+              >
+              <span id="final-score"></span>
+            </p>
+            <p>Time: <span id="clear-time"></span> sec</p>
+            <p>Speed: <span id="kps-display"></span> hit/s</p>
+            <p>Miss: <span id="penalty-count"></span></p>
+            <div class="result-actions">
+              <button id="post-to-x-btn">Post to X</button>
+            </div>
+          </div>
+          <div id="ranking-display">
+            <h2>Ranking</h2>
+            <button id="reset-ranking-btn" title="Reset Ranking">⟳</button>
+            <p id="ranking-info" class="hidden setting-description">
+              * Scores for games with 100 or more notes will be registered.
+            </p>
+            <ol id="ranking-list"></ol>
+          </div>
+        </div>
+      </div>
+
+      <!-- 設定トグルボタン (右上) -->
+      <a href="https://github.com/Escobar1616/BMSprint" target="_blank" id="repo-btn" class="toggle-btn repo-toggle-btn" title="GitHub Repository">
+        <img src="assets/github-logo.png" alt="Repo" style="width: 100%; height: 100%; object-fit: contain; border-radius: 50%;" />
+      </a>
+      <button id="open-help-btn" class="toggle-btn help-toggle-btn" title="Help">？</button>
+      <button
+        id="open-advanced-settings-btn"
+        class="toggle-btn advanced-settings-toggle-btn"
+        title="Advanced"
+      >
+        ⚙
+      </button>
+      <button
+        id="open-settings-btn"
+        class="toggle-btn settings-toggle-btn"
+        title="Sound"
+      >
+        ♪
+      </button>
+    </div>
+
+    <!-- Sound 設定パネル -->
+    <div id="settings-panel" class="overlay-panel">
+      <h3>Sound Settings</h3>
+      <div class="setting-item">
+        <label for="volume-slider">Volume</label>
+        <div class="volume-control">
+          <input type="range" id="volume-slider" min="0" max="1" step="0.01" />
+          <span id="volume-display">100</span>
+        </div>
+      </div>
+      <hr class="setting-divider" />
+      <div class="setting-item">
+        <label for="don-file-input"
+          ><span class="label-text-group"
+            >Scratch<span class="sound-status"></span></span>
+          <button
+            class="reset-single-sound-btn hidden"
+            data-sound-key="don"
+            title="Reset to default"
+          >×</button></label>
+        <input
+          type="file"
+          id="don-file-input"
+          class="sound-file-input"
+          data-sound-key="don"
+          accept="audio/*"
+        />
+      </div>
+      <div class="setting-item">
+        <label for="ka-file-input"
+          ><span class="label-text-group"
+            >Key<span class="sound-status"></span></span>
+          <button
+            class="reset-single-sound-btn hidden"
+            data-sound-key="ka"
+            title="Reset to default"
+          >×</button></label>
+        <input
+          type="file"
+          id="ka-file-input"
+          class="sound-file-input"
+          data-sound-key="ka"
+          accept="audio/*"
+        />
+      </div>
+      <div class="setting-item">
+        <label for="miss-file-input"
+          ><span class="label-text-group"
+            >Miss<span class="sound-status"></span></span>
+          <button
+            class="reset-single-sound-btn hidden"
+            data-sound-key="miss"
+            title="Reset to default"
+          >×</button></label>
+        <input
+          type="file"
+          id="miss-file-input"
+          class="sound-file-input"
+          data-sound-key="miss"
+          accept="audio/*"
+        />
+      </div>
+      <div class="setting-item">
+        <label for="countdown-file-input"
+          ><span class="label-text-group"
+            >Countdown<span class="sound-status"></span></span>
+          <button
+            class="reset-single-sound-btn hidden"
+            data-sound-key="countdown"
+            title="Reset to default"
+          >×</button></label>
+        <input
+          type="file"
+          id="countdown-file-input"
+          class="sound-file-input"
+          data-sound-key="countdown"
+          accept="audio/*"
+        />
+      </div>
+      <div class="setting-item">
+        <label for="clear-file-input"
+          ><span class="label-text-group"
+            >Clear<span class="sound-status"></span></span>
+          <button
+            class="reset-single-sound-btn hidden"
+            data-sound-key="clear"
+            title="Reset to default"
+          >×</button></label>
+        <input
+          type="file"
+          id="clear-file-input"
+          class="sound-file-input"
+          data-sound-key="clear"
+          accept="audio/*"
+        />
+      </div>
+      <div class="setting-item">
+        <label for="cancel-file-input"
+          ><span class="label-text-group"
+            >Cancel<span class="sound-status"></span></span>
+          <button
+            class="reset-single-sound-btn hidden"
+            data-sound-key="cancel"
+            title="Reset to default"
+          >×</button></label>
+        <input
+          type="file"
+          id="cancel-file-input"
+          class="sound-file-input"
+          data-sound-key="cancel"
+          accept="audio/*"
+        />
+      </div>
+      <div class="setting-actions">
+        <button id="reset-sounds-btn">Reset to Default</button>
+        <button id="close-settings-btn">Close</button>
+      </div>
+    </div>
+
+    <!-- Help パネル -->
+    <div id="help-panel" class="overlay-panel">
+      <h3>How to Play</h3>
+      <p>Press the corresponding keys when notes reach the judgment line.</p>
+      <p>Chords must all be hit within 0.3 sec of the first press.</p>
+      <hr class="key-guide-divider" />
+      <ul class="key-guide">
+        <li><span class="key-icon">Enter</span> : Start / Retry Game</li>
+        <li><span class="key-icon">Esc</span> : Interrupt Game</li>
+      </ul>
+      <div class="setting-actions">
+        <button id="close-help-btn">Close</button>
+      </div>
+    </div>
+
+    <!-- Advanced 設定パネル -->
+    <div id="advanced-settings-panel" class="overlay-panel">
+      <h3>Key Configuration</h3>
+      <div class="key-config-tabs">
+        <button class="key-tab-btn active" data-tab="left">Left</button>
+        <button class="key-tab-btn" data-tab="right">Right</button>
+      </div>
+
+      <div class="key-config-section" data-tab="left">
+        <div class="key-config-grid">
+          <div class="key-config-item"><label>Scratch ↑</label><button class="key-config-btn" data-action="left_scratch_up">Shift</button></div>
+          <div class="key-config-item"><label>Scratch ↓</label><button class="key-config-btn" data-action="left_scratch_down">-</button></div>
+          <div class="key-config-item"><label>Key 1</label><button class="key-config-btn" data-action="left_key1">Z</button></div>
+          <div class="key-config-item"><label>Key 2</label><button class="key-config-btn" data-action="left_key2">S</button></div>
+          <div class="key-config-item"><label>Key 3</label><button class="key-config-btn" data-action="left_key3">X</button></div>
+          <div class="key-config-item"><label>Key 4</label><button class="key-config-btn" data-action="left_key4">D</button></div>
+          <div class="key-config-item"><label>Key 5</label><button class="key-config-btn" data-action="left_key5">C</button></div>
+          <div class="key-config-item"><label>Key 6</label><button class="key-config-btn" data-action="left_key6">F</button></div>
+          <div class="key-config-item"><label>Key 7</label><button class="key-config-btn" data-action="left_key7">V</button></div>
+        </div>
+      </div>
+
+      <div class="key-config-section hidden" data-tab="right">
+        <div class="key-config-grid">
+          <div class="key-config-item"><label>Scratch ↑</label><button class="key-config-btn" data-action="right_scratch_up">Shift</button></div>
+          <div class="key-config-item"><label>Scratch ↓</label><button class="key-config-btn" data-action="right_scratch_down">-</button></div>
+          <div class="key-config-item"><label>Key 1</label><button class="key-config-btn" data-action="right_key1">,</button></div>
+          <div class="key-config-item"><label>Key 2</label><button class="key-config-btn" data-action="right_key2">L</button></div>
+          <div class="key-config-item"><label>Key 3</label><button class="key-config-btn" data-action="right_key3">.</button></div>
+          <div class="key-config-item"><label>Key 4</label><button class="key-config-btn" data-action="right_key4">;</button></div>
+          <div class="key-config-item"><label>Key 5</label><button class="key-config-btn" data-action="right_key5">/</button></div>
+          <div class="key-config-item"><label>Key 6</label><button class="key-config-btn" data-action="right_key6">:</button></div>
+          <div class="key-config-item"><label>Key 7</label><button class="key-config-btn" data-action="right_key7">\</button></div>
+        </div>
+      </div>
+
+      <p class="setting-description">Click a button and press any key to change. Esc to clear.</p>
+      <div class="setting-actions">
+        <button id="reset-key-config-btn">Reset to Default</button>
+      </div>
+      <hr class="setting-divider" />
+      <h3>Advanced</h3>
+      <div class="setting-item">
+        <label for="animation-speed-slider">Note Scroll Speed (sec)</label>
+        <div class="volume-control">
+          <input type="range" id="animation-speed-slider" min="0.00" max="0.3" step="0.01" />
+          <span id="animation-speed-display">0.10</span>
+        </div>
+      </div>
+      <div class="setting-item">
+        <label for="seed-input">Seed (Optional)</label>
+        <input type="text" id="seed-input" class="setting-input" placeholder="Random seed text" />
+      </div>
+
+      <hr class="setting-divider" />
+      <h3>Visuals & Colors</h3>
+      <div class="setting-item color-settings">
+        <label>Note Colors</label>
+        <div class="color-inputs" style="display: flex; gap: 10px; justify-content: space-around;">
+          <div style="display: flex; flex-direction: column; align-items: center;">
+            <input type="color" id="color-scratch" value="#be0707" />
+            <span style="font-size: 0.8em; margin-top: 2px;">Scratch</span>
+          </div>
+          <div style="display: flex; flex-direction: column; align-items: center;">
+            <input type="color" id="color-white" value="#e1e1e1" />
+            <span style="font-size: 0.8em; margin-top: 2px;">White(1,3,5,7)</span>
+          </div>
+          <div style="display: flex; flex-direction: column; align-items: center;">
+            <input type="color" id="color-blue" value="#1107be" />
+            <span style="font-size: 0.8em; margin-top: 2px;">Blue(2,4,6)</span>
+          </div>
+        </div>
+      </div>
+      <div class="setting-item">
+        <label>Judgment Line Color</label>
+        <div style="display: flex; align-items: center; justify-content: center;">
+          <input type="color" id="color-judgment" value="#db0000" />
+        </div>
+      </div>
+      <div class="setting-item">
+        <label for="stop-offset-input">Note Stop Offset (px)</label>
+        <input type="number" id="stop-offset-input" class="setting-input" value="-12" step="1" />
+      </div>
+
+      <hr class="setting-divider" />
+      <h3>Chord Probabilities (Weight)</h3>
+      <div class="chord-probs-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;">
+        <div class="setting-item">
+          <label>1 Key</label>
+          <input type="number" id="prob-chord-1" class="setting-input" value="85" min="0" />
+        </div>
+        <div class="setting-item">
+          <label>2 Keys</label>
+          <input type="number" id="prob-chord-2" class="setting-input" value="10" min="0" />
+        </div>
+        <div class="setting-item">
+          <label>3 Keys</label>
+          <input type="number" id="prob-chord-3" class="setting-input" value="5" min="0" />
+        </div>
+        <div class="setting-item">
+          <label>4 Keys</label>
+          <input type="number" id="prob-chord-4" class="setting-input" value="0" min="0" />
+        </div>
+        <div class="setting-item">
+          <label>5 Keys</label>
+          <input type="number" id="prob-chord-5" class="setting-input" value="0" min="0" />
+        </div>
+        <div class="setting-item">
+          <label>6 Keys</label>
+          <input type="number" id="prob-chord-6" class="setting-input" value="0" min="0" />
+        </div>
+        <div class="setting-item">
+          <label>7 Keys</label>
+          <input type="number" id="prob-chord-7" class="setting-input" value="0" min="0" />
+        </div>
+        <div class="setting-item">
+          <label>8 Keys</label>
+          <input type="number" id="prob-chord-8" class="setting-input" value="0" min="0" />
+        </div>
+      </div>
+      <div class="setting-actions">
+        <button id="close-advanced-settings-btn">Close</button>
+      </div>
+    </div>
+
+    <footer class="page-footer">
+      <p>
+        BMSprint <span id="version-display"></span> (forked from
+        <a
+          href="https://github.com/kirumi-shibu/SprinTaiko"
+          target="_blank"
+          rel="noopener noreferrer"
+          >SprinTaiko</a
+        >)
+      </p>
+    </footer>
+    <script src="script.js"></script>
+  </body>
+</html>
