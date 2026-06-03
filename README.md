@@ -2,7 +2,7 @@
 
 BMS練習用ウェブサイト。
 
-[** Play BMSprint **](https://escobar1616.github.io/BMSprint)
+[Play BMSprint](https://escobar1616.github.io/BMSprint)
 
 ![BMSprint Screenshot](./assets/screenshot.png)
 
@@ -19,7 +19,7 @@ BMS練習用ウェブサイト。
 - **Sound Customization:**
   - Adjust the master volume.
   - Upload your own sound files.
-- **Share on X:** Post your results directly to Twitter from the result screen.
+- **Share on Twitter:** Post your results directly to Twitter from the result screen.
 - **ノーツ色変更**
 - **同時押しノーツ確率設定**
 - **レーン別出現確率設定**
