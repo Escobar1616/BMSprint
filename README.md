@@ -22,3 +22,7 @@ BMS練習用ウェブサイト。
 - **Share on X:** Post your results directly to Twitter from the result screen.
 - **ノーツ色変更**
 - **同時押しノーツ確率設定**
+- **レーン別出現確率設定**
+- **ゲームコントローラー対応（キーコンフィグでボタン/スティック/POVを割り当て可能）**
+- **Start/Stop(既定 Enter/Esc)のキー割り当て**
+- **同時押し許容時間の調整**

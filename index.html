@@ -395,7 +395,15 @@
         </div>
       </div>
 
-      <p class="setting-description">Click a button and press any key to change. Esc to clear.</p>
+      <div class="key-config-system">
+        <h4 style="color: #ffc107; text-align: center; margin: 1vh 0 0.5vh;">System (Enter / Esc)</h4>
+        <div class="key-config-grid">
+          <div class="key-config-item"><label>Start / Restart</label><button class="key-config-btn" data-action="start">Enter</button></div>
+          <div class="key-config-item"><label>Stop / Interrupt</label><button class="key-config-btn" data-action="interrupt">Esc</button></div>
+        </div>
+      </div>
+
+      <p class="setting-description">Click a button, then press any key or game controller input (button / stick / POV) to bind. Esc to clear.<br />※ コントローラーはブラウザが認識するため、最初に一度ボタンを押してください (HTTPS/localhost のみ)。</p>
       <div class="setting-actions">
         <button id="reset-key-config-btn">Reset to Default</button>
       </div>
@@ -411,6 +419,10 @@
       <div class="setting-item">
         <label for="seed-input">Seed (Optional)</label>
         <input type="text" id="seed-input" class="setting-input" placeholder="Random seed text" />
+      </div>
+      <div class="setting-item">
+        <label for="chord-window-input">同時押し許容時間 / Chord Tolerance (sec)</label>
+        <input type="number" id="chord-window-input" class="setting-input" value="0.1" min="0.05" max="2" step="0.05" />
       </div>
 
       <hr class="setting-divider" />
@@ -445,6 +457,9 @@
 
       <hr class="setting-divider" />
       <h3>Chord Probabilities (Weight)</h3>
+      <p class="setting-hint" style="opacity: 0.7; font-size: 0.85em; margin: 0 0 8px;">
+        同時押し出現率。例えば、2 Keysの数値を大きくすると、2ノーツが同時に降ってくる複合が出やすくなります。
+      </p>
       <div class="chord-probs-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;">
         <div class="setting-item">
           <label>1 Key</label>
@@ -478,6 +493,52 @@
           <label>8 Keys</label>
           <input type="number" id="prob-chord-8" class="setting-input" value="0" min="0" />
         </div>
+      </div>
+      <div class="setting-actions">
+        <button id="reset-chord-probs-btn">Reset to Default</button>
+      </div>
+
+      <hr class="setting-divider" />
+      <h3>Lane Drop Weights (Weight)</h3>
+      <p class="setting-hint" style="opacity: 0.7; font-size: 0.85em; margin: 0 0 8px;">
+        レーンごとのノーツ出現率。例えば、Scratchの数値を大きくすると、皿ノーツが出る確率が上がります。
+      </p>
+      <div class="chord-probs-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;">
+        <div class="setting-item">
+          <label>Scratch</label>
+          <input type="number" id="lane-prob-0" class="setting-input" value="1" min="0" />
+        </div>
+        <div class="setting-item">
+          <label>Key 1</label>
+          <input type="number" id="lane-prob-1" class="setting-input" value="1" min="0" />
+        </div>
+        <div class="setting-item">
+          <label>Key 2 (blue)</label>
+          <input type="number" id="lane-prob-2" class="setting-input" value="1" min="0" />
+        </div>
+        <div class="setting-item">
+          <label>Key 3</label>
+          <input type="number" id="lane-prob-3" class="setting-input" value="1" min="0" />
+        </div>
+        <div class="setting-item">
+          <label>Key 4 (blue)</label>
+          <input type="number" id="lane-prob-4" class="setting-input" value="1" min="0" />
+        </div>
+        <div class="setting-item">
+          <label>Key 5</label>
+          <input type="number" id="lane-prob-5" class="setting-input" value="1" min="0" />
+        </div>
+        <div class="setting-item">
+          <label>Key 6 (blue)</label>
+          <input type="number" id="lane-prob-6" class="setting-input" value="1" min="0" />
+        </div>
+        <div class="setting-item">
+          <label>Key 7</label>
+          <input type="number" id="lane-prob-7" class="setting-input" value="1" min="0" />
+        </div>
+      </div>
+      <div class="setting-actions">
+        <button id="reset-lane-probs-btn">Reset to Default</button>
       </div>
       <div class="setting-actions">
         <button id="close-advanced-settings-btn">Close</button>

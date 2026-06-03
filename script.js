@@ -64,6 +64,7 @@ const dom = {
   colorBlue: document.getElementById("color-blue"),
   colorJudgment: document.getElementById("color-judgment"),
   stopOffsetInput: document.getElementById("stop-offset-input"),
+  chordWindowInput: document.getElementById("chord-window-input"),
   probChord1: document.getElementById("prob-chord-1"),
   probChord2: document.getElementById("prob-chord-2"),
   probChord3: document.getElementById("prob-chord-3"),
@@ -72,10 +73,20 @@ const dom = {
   probChord6: document.getElementById("prob-chord-6"),
   probChord7: document.getElementById("prob-chord-7"),
   probChord8: document.getElementById("prob-chord-8"),
+  laneProb0: document.getElementById("lane-prob-0"),
+  laneProb1: document.getElementById("lane-prob-1"),
+  laneProb2: document.getElementById("lane-prob-2"),
+  laneProb3: document.getElementById("lane-prob-3"),
+  laneProb4: document.getElementById("lane-prob-4"),
+  laneProb5: document.getElementById("lane-prob-5"),
+  laneProb6: document.getElementById("lane-prob-6"),
+  laneProb7: document.getElementById("lane-prob-7"),
+  resetChordProbsBtn: document.getElementById("reset-chord-probs-btn"),
+  resetLaneProbsBtn: document.getElementById("reset-lane-probs-btn"),
 };
 
 // --- 定数 ---
-const VERSION = "v2026.05.11.1";
+const VERSION = "v2026.06.03.1";
 const STORAGE_PREFIX = "bmsprint-";
 const RANKING_KEY = STORAGE_PREFIX + "ranking";
 const HISPEED_KEY = STORAGE_PREFIX + "hispeed";
@@ -90,13 +101,23 @@ const SEED_KEY = STORAGE_PREFIX + "seed";
 const COLORS_KEY = STORAGE_PREFIX + "colors";
 const STOP_OFFSET_KEY = STORAGE_PREFIX + "stop-offset";
 const CHORD_PROBS_KEY = STORAGE_PREFIX + "chord-probs";
+const LANE_PROBS_KEY = STORAGE_PREFIX + "lane-probs";
+const CHORD_WINDOW_KEY = STORAGE_PREFIX + "chord-window";
 const CUSTOM_SOUND_KEY_PREFIX = STORAGE_PREFIX + "sound-";
+
+// レーン別ドロップ重み (index = lane 0..7)。全て等しい = 一様抽出 = 現状と同一挙動
+const EQUAL_LANE_PROBS = [1, 1, 1, 1, 1, 1, 1, 1];
 
 const RANKING_SIZE = 5;
 const SIDES = ["left", "right"];
-const CHORD_WINDOW_MS = 300;
+const CHORD_WINDOW_MS = 100;
 const MISS_PENALTY_TIME = 500;
 const COUNTDOWN_INTERVAL = 500;
+
+// ゲームパッド: 軸を「押した」とみなすしきい値 (スティックのドリフト除け)
+const GAMEPAD_AXIS_THRESHOLD = 0.6;
+// 標準マッピング(standard mapping)の十字キーはボタン 12..15。POV 表示に使う
+const STANDARD_DPAD = { 12: "↑", 13: "↓", 14: "←", 15: "→" };
 
 // ============================================================
 // SPEC: 仕様書から起こした寸法・色情報
@@ -190,7 +211,12 @@ const DEFAULT_KEY_CONFIG = {
   right_key5: "/",
   right_key6: ":",
   right_key7: "\\",
+  start: "Enter",
+  interrupt: "Escape",
 };
+
+// システムアクション(レーンではなくゲーム制御)。dispatch で別扱いする
+const SYSTEM_ACTIONS = new Set(["start", "interrupt"]);
 
 // --- 音声 ---
 let audioContext;
@@ -227,6 +253,8 @@ const gameState = {
   colors: { scratch: "#be0707", white: "#e1e1e1", blue: "#1107be", judgment: "#db0000" },
   stopOffset: -12,
   chordProbs: [85, 10, 5, 0, 0, 0, 0, 0],
+  laneProbs: [1, 1, 1, 1, 1, 1, 1, 1],
+  chordWindowMs: CHORD_WINDOW_MS,
 
   keyConfig: { ...DEFAULT_KEY_CONFIG },
 
@@ -244,6 +272,11 @@ const gameState = {
 
 let keyToAction = {};
 let timerInterval = null;
+
+// --- ゲームパッド (Gamepad API はポーリング駆動) ---
+let gamepadSupported = false;
+let padPrev = new Set(); // 前フレームで「押されていた」入力 keyId 集合 (エッジ検出用)
+let padCaptureCallback = null; // キーバインド捕捉中のみセットされる
 
 // ============================================================
 // 音声
@@ -359,6 +392,13 @@ function stringToSeed(str) {
 // ============================================================
 // 譜面生成
 // ============================================================
+// レーン別重みを length-8 の非負配列に正規化 (壊れた/欠損エントリは 0 に潰す)
+function sanitizeLaneProbs(arr) {
+  const out = [];
+  for (let l = 0; l < 8; l++) out.push(Math.max(0, Number(arr && arr[l]) || 0));
+  return out;
+}
+
 function getAvailableLanes() {
   const lanes = [];
   if (gameState.scratchEnabled) lanes.push(0);
@@ -377,6 +417,12 @@ function generateNotes() {
   const random = gameState.seed
     ? mulberry32(stringToSeed(gameState.seed))
     : Math.random;
+
+  // レーン別重み。可用レーンの重みが全て等しければ一様抽出と数学的に同一なので、
+  // その場合は既存の一様コードをそのまま通す (= デフォルト/未設定はシード含め完全互換)
+  const lp = sanitizeLaneProbs(gameState.laneProbs);
+  const w0 = lp[available[0]];
+  const weightsActive = available.some((l) => lp[l] !== w0);
 
   for (let i = 0; i < gameState.notesCount; i++) {
     const probs = gameState.chordProbs || [85, 10, 5, 0, 0, 0, 0, 0];
@@ -400,7 +446,31 @@ function generateNotes() {
     const pool = [...available];
     const lanes = [];
     for (let j = 0; j < chordSize; j++) {
-      const pickIdx = Math.floor(random() * pool.length);
+      let pickIdx;
+      if (!weightsActive) {
+        // 一様パス: 既存コードと完全に同一 (random() 1回)
+        pickIdx = Math.floor(random() * pool.length);
+      } else {
+        let tw = 0;
+        for (let k = 0; k < pool.length; k++) tw += lp[pool[k]];
+        if (tw <= 0) {
+          // 残プールの重みが全て 0 (全0設定 / 過大和音で正重みレーン枯渇) →
+          // 一様フォールバック。0重みレーンは最後の穴埋めとしてのみ出現する
+          pickIdx = Math.floor(random() * pool.length);
+        } else {
+          let roll = random() * tw; // 重み付きでも random() は必ず1回 = 乱数列が ズレない
+          pickIdx = pool.length - 1; // 浮動小数のオーバーシュート保険
+          for (let k = 0; k < pool.length; k++) {
+            const w = lp[pool[k]];
+            if (w <= 0) continue;
+            roll -= w;
+            if (roll <= 0) {
+              pickIdx = k;
+              break;
+            }
+          }
+        }
+      }
       lanes.push(pool[pickIdx]);
       pool.splice(pickIdx, 1);
     }
@@ -697,6 +767,26 @@ function updateChordProbs(probs, save = true) {
   if (save) localStorage.setItem(CHORD_PROBS_KEY, JSON.stringify(probs));
 }
 
+function updateLaneProbs(probs, save = true) {
+  const clean = sanitizeLaneProbs(probs);
+  gameState.laneProbs = clean;
+  for (let l = 0; l < 8; l++) {
+    const input = dom["laneProb" + l];
+    if (input) input.value = clean[l];
+  }
+  if (save) localStorage.setItem(LANE_PROBS_KEY, JSON.stringify(clean));
+}
+
+// 同時押し許容時間。UI は秒、内部は ms。0.05〜2.0 秒にクランプ。
+function updateChordWindow(seconds, save = true) {
+  let s = parseFloat(seconds);
+  if (!isFinite(s)) s = CHORD_WINDOW_MS / 1000;
+  s = Math.max(0.05, Math.min(s, 2.0));
+  gameState.chordWindowMs = Math.round(s * 1000);
+  dom.chordWindowInput.value = s;
+  if (save) localStorage.setItem(CHORD_WINDOW_KEY, s);
+}
+
 // ============================================================
 // キーバインド
 // ============================================================
@@ -713,7 +803,30 @@ function displayKeyId(keyId) {
   if (keyId === "ShiftLeft") return "L-Shift";
   if (keyId === "ShiftRight") return "R-Shift";
   if (keyId === " ") return "Space";
+  if (keyId.startsWith("pad:")) return displayPadKeyId(keyId);
   if (keyId.length === 1) return keyId.toUpperCase();
+  return keyId;
+}
+
+// ゲームパッドの keyId を人間向け表記へ。
+// 標準マッピング(Chrome 等)では十字キー=ボタン12-15 を POV、軸0-3 を Stick1/2 と表示。
+// それ以外(Firefox の hat 軸など非標準)は汎用表記にフォールバック。
+function displayPadKeyId(keyId) {
+  const btn = keyId.match(/^pad:b(\d+)$/);
+  if (btn) {
+    const i = parseInt(btn[1], 10);
+    if (STANDARD_DPAD[i]) return `POV: ${STANDARD_DPAD[i]}`;
+    return `[${i}] Button`;
+  }
+  const ax = keyId.match(/^pad:a(\d+):([+-])$/);
+  if (ax) {
+    const i = parseInt(ax[1], 10);
+    const neg = ax[2] === "-";
+    const horizontal = i % 2 === 0;
+    const arrow = horizontal ? (neg ? "←" : "→") : neg ? "↑" : "↓";
+    if (i <= 3) return `Stick${Math.floor(i / 2) + 1}:${arrow}`;
+    return `Axis${i}${ax[2]}`;
+  }
   return keyId;
 }
 
@@ -809,19 +922,13 @@ async function startGame() {
   gameState.startTime = Date.now();
   timerInterval = setInterval(updateTimer, 10);
 
-  document.addEventListener("keydown", handleKeyPress);
-  document.addEventListener("keyup", handleKeyRelease);
-
   requestAnimationFrame(gameLoop);
 }
 
-function handleKeyPress(event) {
-  if (!gameState.isActive) return;
-  if (event.repeat) return;
-  const keyId = getKeyId(event);
+// 押下/離しの本体。キーボードイベントとゲームパッドのポーリング両方から呼ばれる。
+function pressAction(keyId) {
   const action = keyToAction[keyId];
   if (!action) return;
-  event.preventDefault();
   const side = actionToSide(action);
   const lane = actionToLane(action);
   flashKeyIndicator(side, lane, true);
@@ -850,12 +957,135 @@ function handleKeyPress(event) {
   }
 }
 
-function handleKeyRelease(event) {
-  if (!gameState.isActive) return;
-  const keyId = getKeyId(event);
+function releaseAction(keyId) {
   const action = keyToAction[keyId];
   if (!action) return;
   flashKeyIndicator(actionToSide(action), actionToLane(action), false);
+}
+
+// システムアクション(リバインド可能)
+function triggerStart() {
+  if (gameState.isActive) {
+    interruptGame(false);
+    startGame();
+  } else if (!gameState.isStarting) {
+    startGame();
+  }
+}
+function triggerInterrupt() {
+  if (gameState.isActive) interruptGame();
+}
+
+// キーボード・ゲームパッド共通の押下/離しディスパッチ。
+// start/interrupt はゲーム非アクティブでも作用、レーンはアクティブ時のみ。
+function dispatchPress(keyId) {
+  const action = keyToAction[keyId];
+  if (!action) return;
+  if (action === "start") return triggerStart();
+  if (action === "interrupt") return triggerInterrupt();
+  if (!gameState.isActive) return;
+  pressAction(keyId);
+}
+function dispatchRelease(keyId) {
+  const action = keyToAction[keyId];
+  if (!action || SYSTEM_ACTIONS.has(action)) return;
+  if (!gameState.isActive) return;
+  releaseAction(keyId);
+}
+
+function onGlobalKeyDown(event) {
+  if (event.repeat) return;
+  const keyId = getKeyId(event);
+  const action = keyToAction[keyId];
+  if (!action) return;
+  // 非ゲーム中のレーンキーは横取りしない(Seed 入力欄などで文字が打てるように)
+  if (!SYSTEM_ACTIONS.has(action) && !gameState.isActive) return;
+  event.preventDefault();
+  dispatchPress(keyId);
+}
+function onGlobalKeyUp(event) {
+  const keyId = getKeyId(event);
+  if (!keyToAction[keyId]) return;
+  dispatchRelease(keyId);
+}
+
+// ============================================================
+// ゲームパッド (Gamepad API)
+// 互換性メモ:
+//  - Secure context(HTTPS / localhost)必須。GitHub Pages は HTTPS なので可。
+//  - Chrome/Firefox はユーザージェスチャ(パッドのボタン押下)まで getGamepads() が
+//    空配列を返す。常時ポーリングしているので、最初の入力で自動的に拾えるようになる。
+//  - ボタン/軸の index やマッピングはブラウザ・OS・コントローラで異なるため、
+//    index ベースの汎用 keyId で扱い、表示のみ標準マッピングを優遇する。
+// ============================================================
+
+// 現在「押されている」ゲームパッド入力の keyId 集合を返す。
+// 接続中の全パッドを OR(単一コントローラ運用を想定)。
+function getPadPressedSet() {
+  const set = new Set();
+  let pads;
+  try {
+    pads = navigator.getGamepads();
+  } catch (e) {
+    return set;
+  }
+  if (!pads) return set;
+  for (const pad of pads) {
+    if (!pad) continue;
+    const buttons = pad.buttons || [];
+    for (let i = 0; i < buttons.length; i++) {
+      const b = buttons[i];
+      const pressed =
+        b && typeof b === "object" ? b.pressed || b.value > 0.5 : b > 0.5;
+      if (pressed) set.add("pad:b" + i);
+    }
+    const axes = pad.axes || [];
+    for (let i = 0; i < axes.length; i++) {
+      const v = axes[i];
+      // 符号別に判定。トリガ軸が静止時 -1 でも、+ バインドなら押下扱いにならない
+      if (v >= GAMEPAD_AXIS_THRESHOLD) set.add("pad:a" + i + ":+");
+      else if (v <= -GAMEPAD_AXIS_THRESHOLD) set.add("pad:a" + i + ":-");
+    }
+  }
+  return set;
+}
+
+function gamepadLoop() {
+  if (!gamepadSupported) return;
+  const cur = getPadPressedSet();
+
+  if (padCaptureCallback) {
+    // バインド捕捉中: 新たに押された(立ち上がりエッジ)最初の入力を採用。
+    // 静止中の軸や押しっぱなしは前フレームにも在るのでエッジが立たず誤捕捉しない。
+    for (const keyId of cur) {
+      if (!padPrev.has(keyId)) {
+        const cb = padCaptureCallback;
+        padCaptureCallback = null;
+        cb(keyId);
+        break;
+      }
+    }
+  } else {
+    // 立ち上がり=押下、立ち下がり=離し。dispatch 側で system/lane と active を判定する
+    // (start/interrupt はゲーム非アクティブでも作用するのでここで isActive ゲートしない)
+    for (const keyId of cur) {
+      if (!padPrev.has(keyId)) dispatchPress(keyId);
+    }
+    for (const keyId of padPrev) {
+      if (!cur.has(keyId)) dispatchRelease(keyId);
+    }
+  }
+
+  padPrev = cur;
+  requestAnimationFrame(gamepadLoop);
+}
+
+function initGamepad() {
+  if (typeof navigator === "undefined" || !navigator.getGamepads) return;
+  gamepadSupported = true;
+  // connect/disconnect は今回ロジック上必須ではないが、フォーカス時の検出を促す
+  window.addEventListener("gamepadconnected", () => {});
+  requestAnimationFrame(gamepadLoop);
 }
 
 function flashKeyIndicator(side, lane, on) {
@@ -913,7 +1143,7 @@ function advanceChord() {
 
 function checkChordTimeout() {
   if (!gameState.chordStarted) return;
-  if (Date.now() - gameState.chordStartTime <= CHORD_WINDOW_MS) return;
+  if (Date.now() - gameState.chordStartTime <= gameState.chordWindowMs) return;
   const chord = gameState.sequence[gameState.currentIndex];
   if (chord) {
     for (const lane of chord.lanes) {
@@ -968,8 +1198,6 @@ function gameLoop() {
 function endGame() {
   gameState.isActive = false;
   clearInterval(timerInterval);
-  document.removeEventListener("keydown", handleKeyPress);
-  document.removeEventListener("keyup", handleKeyRelease);
   document.querySelectorAll(".pressed").forEach(el => el.classList.remove("pressed"));
   playSound("clear");
   const finalTime = (Date.now() - gameState.startTime) / 1000;
@@ -1006,8 +1234,6 @@ function interruptGame(playCancelSound = true) {
   gameState.isActive = false;
   gameState.isStarting = false;
   clearInterval(timerInterval);
-  document.removeEventListener("keydown", handleKeyPress);
-  document.removeEventListener("keyup", handleKeyRelease);
   dom.timerDisplay.textContent = "0.00";
   dom.remainingNotesDisplay.textContent = gameState.notesCount;
   dom.missDisplay.textContent = 0;
@@ -1130,6 +1356,15 @@ function initialize() {
   const savedChordProbs = localStorage.getItem(CHORD_PROBS_KEY)
     ? JSON.parse(localStorage.getItem(CHORD_PROBS_KEY))
     : [85, 10, 5, 0, 0, 0, 0, 0];
+  let savedLaneProbs;
+  try {
+    const raw = localStorage.getItem(LANE_PROBS_KEY);
+    savedLaneProbs = raw ? JSON.parse(raw) : EQUAL_LANE_PROBS;
+  } catch (e) {
+    savedLaneProbs = EQUAL_LANE_PROBS;
+  }
+  const cwRaw = localStorage.getItem(CHORD_WINDOW_KEY);
+  const savedChordWindow = cwRaw !== null ? parseFloat(cwRaw) : CHORD_WINDOW_MS / 1000;
 
   buildStaticVisuals();
 
@@ -1145,6 +1380,8 @@ function initialize() {
   updateColors(savedColors);
   updateStopOffset(savedStopOffset);
   updateChordProbs(savedChordProbs);
+  updateLaneProbs(savedLaneProbs);
+  updateChordWindow(savedChordWindow, false);
 
   gameState.keyConfig = savedKeyConfig;
   rebuildKeyMaps();
@@ -1155,6 +1392,7 @@ function initialize() {
   resetTimerGauge();
 
   attachUIListeners();
+  initGamepad();
 }
 
 function attachUIListeners() {
@@ -1212,6 +1450,10 @@ function attachUIListeners() {
     updateStopOffset(parseInt(e.target.value) || 0);
   });
 
+  dom.chordWindowInput.addEventListener("change", (e) => {
+    updateChordWindow(e.target.value);
+  });
+
   const handleProbChange = () => {
     const probs = [
       parseInt(dom.probChord1.value) || 0,
@@ -1234,17 +1476,27 @@ function attachUIListeners() {
   dom.probChord7.addEventListener("change", handleProbChange);
   dom.probChord8.addEventListener("change", handleProbChange);
 
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      if (gameState.isActive) {
-        interruptGame(false);
-        startGame();
-      } else if (!gameState.isStarting) {
-        startGame();
-      }
+  const handleLaneProbChange = () => {
+    const probs = [];
+    for (let l = 0; l < 8; l++) {
+      probs.push(parseInt(dom["laneProb" + l].value) || 0);
     }
-    if (event.key === "Escape" && gameState.isActive) interruptGame();
-  });
+    updateLaneProbs(probs);
+  };
+  for (let l = 0; l < 8; l++) {
+    dom["laneProb" + l].addEventListener("change", handleLaneProbChange);
+  }
+
+  dom.resetChordProbsBtn.addEventListener("click", () =>
+    updateChordProbs([85, 10, 5, 0, 0, 0, 0, 0]),
+  );
+  dom.resetLaneProbsBtn.addEventListener("click", () =>
+    updateLaneProbs([...EQUAL_LANE_PROBS]),
+  );
+
+  // start/interrupt(既定 Enter/Esc)もレーンキーも、リバインド可能な統合ハンドラで処理
+  document.addEventListener("keydown", onGlobalKeyDown);
+  document.addEventListener("keyup", onGlobalKeyUp);
 
   // 設定パネル開閉
   dom.openSettingsBtn.addEventListener("click", () => {
@@ -1290,27 +1542,42 @@ function attachUIListeners() {
       button.textContent = "...";
       button.style.borderColor = "#ffc107";
 
-      const handle = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        window.removeEventListener("keydown", handle, { capture: true });
+      let done = false;
+      const cleanup = () => {
+        window.removeEventListener("keydown", onKey, { capture: true });
+        padCaptureCallback = null;
         button.style.borderColor = "";
-        if (e.key === "Escape") {
-          updateKeyConfig({ [action]: null });
-          return;
-        }
-        const keyId = getKeyId(e);
+      };
+      // キーボード・ゲームパッドのどちらか先に来た入力を割り当てる
+      const assign = (keyId) => {
+        if (done) return;
+        done = true;
         for (const act in gameState.keyConfig) {
           if (act === action) continue;
           if (gameState.keyConfig[act] === keyId) {
-            alert(`Key "${displayKeyId(keyId)}" is already assigned to ${act}.`);
+            alert(`"${displayKeyId(keyId)}" is already assigned to ${act}.`);
             button.textContent = original;
+            cleanup();
             return;
           }
         }
+        cleanup();
         updateKeyConfig({ [action]: keyId });
       };
-      window.addEventListener("keydown", handle, { capture: true });
+      const onKey = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.key === "Escape") {
+          done = true;
+          cleanup();
+          updateKeyConfig({ [action]: null });
+          return;
+        }
+        assign(getKeyId(e));
+      };
+      window.addEventListener("keydown", onKey, { capture: true });
+      // gamepadLoop が立ち上がりエッジでこれを呼ぶ
+      padCaptureCallback = (keyId) => assign(keyId);
     });
   });
 
